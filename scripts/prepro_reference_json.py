@@ -65,11 +65,3 @@ if __name__ == "__main__":
     print('parsed input parameters:')
     print(json.dumps(params, indent=2))
     main(params)
-# 只处理 split == val or test
-# {
-#     "images":[12,23,345],
-#     "annotations":[
-#         {'img_id':12, "caption":"i am shabi"},
-#         {},
-#     ]
-# }

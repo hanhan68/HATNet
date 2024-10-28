@@ -1,14 +1,3 @@
-# This file contains Transformer network
-# Most of the code is copied from http://nlp.seas.harvard.edu/2018/04/03/attention.html
-
-# The cfg name correspondance:
-# N=num_layers
-# d_model=input_encoding_size
-# d_ff=rnn_size
-# h is always 8
-
-# GeoRSCLIP_mul2_AWareTrans5Dec+4
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -29,161 +18,8 @@ from torch import einsum, nn
 
 from .CaptionModel import CaptionModel
 from .AttModel import sort_pack_padded_sequence, pad_unsort_packed_sequence, pack_wrapper, AttModel
-from einops import rearrange, repeat
-
-#
-# class SpatialAttention(nn.Module):
-#     def __init__(self, kernel_size=7):
-#         super(SpatialAttention, self).__init__()
-#         assert kernel_size in (3,7), "kernel size must be 3 or 7"
-#         padding = 3 if kernel_size == 7 else 1
-#         self.conv = nn.Conv2d(2,1,kernel_size, padding=padding, bias=False)
-#         self.sigmoid = nn.Sigmoid()
-#     def forward(self, x):
-#         avgout = torch.mean(x, dim=1, keepdim=True)
-#         maxout, _ = torch.max(x, dim=1, keepdim=True)
-#         attn = torch.cat([avgout, maxout], dim=1)
-#         attn = self.conv(attn)
-#         return self.sigmoid(attn) * x
-#
-# class ChannelAttention(nn.Module):
-#     def __init__(self, in_planes, ratio=16):
-#         super(ChannelAttention, self).__init__()
-#         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-#         self.max_pool = nn.AdaptiveMaxPool2d(1)
-#         self.sharedMLP = nn.Sequential(
-#             nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False), nn.ReLU(),
-#             nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False))
-#         self.sigmoid = nn.Sigmoid()
-#     def forward(self, x):
-#         avgout = self.sharedMLP(self.avg_pool(x))
-#         maxout = self.sharedMLP(self.max_pool(x))
-#         return self.sigmoid(avgout + maxout) * x
-#
-class SwiGLU(nn.Module):
-    def forward(self, x):
-        x, gate = x.chunk(2, dim=-1)
-        return F.silu(gate) * x
-
-def exists(val):
-    return val is not None
-
-class CrossAttention(nn.Module):
-    def __init__(
-        self,
-        dim,
-        *,
-        context_dim=None,
-        dim_head=64,
-        heads=8,
-        parallel_ff=False,
-        ff_mult=4,
-        norm_context=False
-    ):
-        super().__init__()
-        self.heads = heads
-        self.scale = dim_head ** -0.5
-        inner_dim = heads * dim_head
-
-        self.norm = LayerNorm(dim)
-        self.context_norm = LayerNorm(context_dim) if norm_context else nn.Identity()
-
-        self.to_q = nn.Linear(dim, inner_dim, bias=False)
-        self.to_kv = nn.Linear(context_dim, dim_head * 2, bias=False)
-        self.to_out = nn.Linear(inner_dim, dim, bias=False)
-
-        # whether to have parallel feedforward
-
-        ff_inner_dim = ff_mult * dim
-
-        self.ff = nn.Sequential(
-            nn.Linear(dim, ff_inner_dim * 2, bias=False),
-            SwiGLU(),
-            nn.Linear(ff_inner_dim, dim, bias=False)
-        ) if parallel_ff else None
-
-    def forward(self, x, context):
-        """
-        einstein notation
-        b - batch
-        h - heads
-        n, i, j - sequence length (base sequence length, source, target)
-        d - feature dimension
-        """
-
-        # pre-layernorm, for queries and context
-
-        x = self.norm(x)
-        context = self.context_norm(context)
-
-        # get queries
-
-        q = self.to_q(x)
-        q = rearrange(q, 'b n (h d) -> b h n d', h = self.heads)
-
-        # scale
-
-        q = q * self.scale
-
-        # get key / values
-
-        k, v = self.to_kv(context).chunk(2, dim=-1)
-
-        # query / key similarity
-
-        sim = einsum('b h i d, b j d -> b h i j', q, k)
-
-        # attention
-
-        sim = sim - sim.amax(dim=-1, keepdim=True)
-        attn = sim.softmax(dim=-1)
-
-        # aggregate
-
-        out = einsum('b h i j, b j d -> b h i d', attn, v)
-
-        # merge and combine heads
-
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        out = self.to_out(out)
-
-        # add parallel feedforward (for multimodal layers)
-
-        if exists(self.ff):
-            out = out + self.ff(x)
-
-        return out
-class AttentionPooling(nn.Module):
-    "空间维度 和 通道维度的 attention pooling"
-    def __init__(self,num_tokens=256, dim=512, head=8):
-        super(AttentionPooling, self).__init__()
-
-        self.img_queries1 = nn.Parameter(torch.randn(num_tokens, dim))  # num image queries for multimodal
-
-        self.img_queries2 = nn.Parameter(torch.randn(num_tokens, dim))  # num image queries for multimodal
-
-        self.img_attn_pool1 = CrossAttention(dim=dim, context_dim=dim, dim_head=dim//head, heads=head, norm_context=True)
-
-        self.img_attn_pool_norm = LayerNorm(dim)
-
-        self.img_attn_pool2 = CrossAttention(dim=num_tokens, context_dim=num_tokens, dim_head=num_tokens//head, heads=head, norm_context=True)
-
-    def forward(self, image_tokens):
-
-        rep_img_queries1 = repeat(self.img_queries1, 'n d -> b n d', b=image_tokens.shape[0])
-
-        rep_img_queries2 = repeat(self.img_queries2, 'n d -> b n d', b=image_tokens.shape[0])
-
-        img_queries1 = self.img_attn_pool1(rep_img_queries1, image_tokens)
-
-        img_queries2 = self.img_attn_pool2(rep_img_queries2.transpose(-2, -1), image_tokens.transpose(-2, -1)).transpose(-2, -1)
-
-        img_queries = self.img_attn_pool_norm(img_queries1 + img_queries2)
-
-        return img_queries
 
 class EncoderDecoder(nn.Module):
-    # 搭建Transformer的编码器和解码器
     """
     A standard Encoder-Decoder architecture. Base for this and many 
     other models.
@@ -193,26 +29,24 @@ class EncoderDecoder(nn.Module):
         self.encoder = encoder
         self.decoder1 = decoder1
         self.decoder2 = decoder2
-        self.src_embed = src_embed # 编码器的嵌入层
-        self.tgt_embed = tgt_embed # 解码器的嵌入层
-        self.generator = generator # 输出层，一般包括一个线性层和一个softmax
+        self.src_embed = src_embed 
+        self.tgt_embed = tgt_embed 
+        self.generator = generator 
 
-    def forward(self, src, tgt, src_mask, tgt_mask): # 只用输入这四个值
+    def forward(self, src, tgt, src_mask, tgt_mask):
         "Take in and process masked src and target sequences."
-        encoder_out = self.encode(src, src_mask) # N层编码器的结果
+        encoder_out = self.encode(src, src_mask) 
         return self.decode(encoder_out, src_mask, tgt, tgt_mask)
     
     def encode(self, src, src_mask):
 
-        enc_emb1 = self.src_embed(src[..., 0*512:1*512]) # 位置编码
-        enc_emb2 = self.src_embed(src[..., 1*512:2*512]) # 位置编码
-        enc_emb3 = self.src_embed(src[..., 2*512:3*512]) # 位置编码
-
+        enc_emb1 = self.src_embed(src[..., 0*512:1*512]) 
+        enc_emb2 = self.src_embed(src[..., 1*512:2*512]) 
+        enc_emb3 = self.src_embed(src[..., 2*512:3*512]) 
         enc_emb = torch.cat([enc_emb1, enc_emb2, enc_emb3], dim=-1) # （b, 256, 512*3）
-
         return self.encoder(enc_emb, src_mask)
     
-    def decode(self, memory, src_mask, tgt, tgt_mask): # memory 表示编码器的输出
+    def decode(self, memory, src_mask, tgt, tgt_mask): 
 
         encoder_out = self.decoder1(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
@@ -225,7 +59,7 @@ class Generator(nn.Module):
         self.proj = nn.Linear(d_model, vocab)
 
     def forward(self, x):
-        return F.log_softmax(self.proj(x), dim=-1) # 注意这里的log_softmax, 是先进行了softmax, 再取了log的
+        return F.log_softmax(self.proj(x), dim=-1) 
 
 def clones(module, N):
     "Produce N identical layers."
@@ -308,7 +142,7 @@ class DecoderLayer1(nn.Module):
 
     def forward(self, x, memory, src_mask, tgt_mask):
         "Follow Figure 1 (right) for connections."
-        x= self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask)) # 自注意力
+        x= self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask)) 
         return self.sublayer[1](x, self.feed_forward) #FFN
 
 class Decoder2(nn.Module):
@@ -318,7 +152,7 @@ class Decoder2(nn.Module):
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
         
-    def forward(self, x, memory, src_mask, tgt_mask): # memory表示编码器的输出
+    def forward(self, x, memory, src_mask, tgt_mask): 
         for i, layer in enumerate(self.layers):
             x = layer(x, memory, src_mask, tgt_mask)
         return self.norm(x)
@@ -333,72 +167,40 @@ class DecoderLayer2(nn.Module):
         self.src_attn = src_attn
         self.feed_forward = feed_forward
         self.sublayer = clones(SublayerConnection(size, dropout), 3)
+        
         ################################################################
-
         self.d_model = 512
         self.mul_level_ffn = nn.Linear(self.d_model * 3, self.d_model)
         self.fc_alpha1 = nn.Linear(self.d_model + self.d_model, self.d_model)
         self.fc_alpha2 = nn.Linear(self.d_model + self.d_model, self.d_model)
-
-        ################################################################
-        # self.fc_alpha1 = nn.Linear(self.d_model + self.d_model, self.d_model)
-        # self.fc_alpha2 = nn.Linear(self.d_model + self.d_model, self.d_model)
-        # self.fc_alpha3 = nn.Linear(d_model + d_model, d_model)
-        # self.fc_alpha4 = nn.Linear(d_model + d_model, d_model)
         ################################################################
 
     def forward(self, x, memory, src_mask, tgt_mask):
         "Follow Figure 1 (right) for connections."
         m = memory
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask))  # 掩码多头自注意 + 残差
-
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask)) 
+        
         ##################################################################
-
         channel = ChannelAttention(512, 512).to("cuda")
         spatial = SpatialAttention().to("cuda")
         yita = nn.Parameter(torch.tensor(0.2)).to("cuda")
-
         Vm = self.mul_level_ffn(m) * yita + memory[..., 512 * 2:512 * 3]
-
         Vm = Vm.view(Vm.shape[0], Vm.shape[2], 16, 16)  # (b, c, h, w)
         Vc = channel(Vm).view(Vm.shape[0], -1, Vm.shape[1])
         Vs = spatial(Vm).view(Vm.shape[0], -1, Vm.shape[1])
-
-        att1 = self.sublayer[1](x, lambda x: self.src_attn(x, Vc, Vc, src_mask))  # 交叉注意力 1
-        att2 = self.sublayer[1](x, lambda x: self.src_attn(x, Vs, Vs, src_mask))  # 交叉注意力 2
-
+        att1 = self.sublayer[1](x, lambda x: self.src_attn(x, Vc, Vc, src_mask))  
+        att2 = self.sublayer[1](x, lambda x: self.src_attn(x, Vs, Vs, src_mask))  
         alpha1 = torch.sigmoid(self.fc_alpha1(torch.cat([x, att1], -1)))
         alpha2 = torch.sigmoid(self.fc_alpha2(torch.cat([x, att2], -1)))
-
-        x = (att1 * alpha1 + att2 * alpha2) / np.sqrt(2)  # 加权求和
-
+        x = (att1 * alpha1 + att2 * alpha2) / np.sqrt(2)  
         ##################################################################
-        # 分别与编码器的每一层的输入做注意力
-        # att1 = self.sublayer[1](x, lambda x: self.src_attn(x, m[:, 0], m[:, 0], src_mask))
-        # att2 = self.sublayer[1](x, lambda x: self.src_attn(x, m[:, 1], m[:, 1], src_mask))
-        # att3 = self.sublayer[1](x, lambda x: self.src_attn(x, m[:, 2], m[:, 2], src_mask))
-        # att4 = self.sublayer[1](x, lambda x: self.src_attn(x, m[:, 3], m[:, 3], src_mask))
-        # 计算上面每一层的权重
-        # alpha1 = torch.sigmoid(self.fc_alpha1(torch.cat([x, att1], -1)))
-        # alpha2 = torch.sigmoid(self.fc_alpha2(torch.cat([x, att2], -1)))
-        # alpha3 = torch.sigmoid(self.fc_alpha3(torch.cat([x, att3], -1)))
-        # alpha4 = torch.sigmoid(self.fc_alpha4(torch.cat([x, att4], -1)))
-        # 加权求和
-        # x = (att1 * alpha1 + att2 * alpha2 + att3 * alpha3 + att4 * alpha4) / np.sqrt(4)
-        ##################################################################
-
-        # x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask)) # 多头交叉注意 + 残差
-
-        return self.sublayer[2](x, self.feed_forward)  # 前馈 + 残差
+        
+        return self.sublayer[2](x, self.feed_forward)  
 class ChannelAttention(nn.Module):
     def __init__(self, in_channel, out_channel):
         super(ChannelAttention, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        #self.max_pool = nn.AdaptiveMaxPool2d(1)
-        #self.add_pooling = lambda x: self.avg_pool(x) + self.max_pool(x)
         self.add_pooling = lambda x: self.avg_pool(x)
-        # self.conv1 = nn.Conv2d(in_channels=in_channel, out_channels=hidden_channel,kernel_size=(1, 1))  # 依据实际情况可以调整为 线性层或者一维卷积,下同
-        # self.conv2 = nn.Conv2d(in_channels=hidden_channel, out_channels=out_channel, kernel_size=(1, 1))
         self.conv = nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=(1, 1))
         self.sigmoid = nn.Sigmoid()
         self.relu = nn.ReLU()
@@ -470,139 +272,6 @@ class MultiHeadedAttention(nn.Module):
 
         return self.linears[-1](x)
 
-# M2的Memory transformer
-class MultiHeadedAttention_MeM(nn.Module):
-    def __init__(self, h, d_model, dropout=0.1):
-        "Take in model size and number of heads."
-        super(MultiHeadedAttention_MeM, self).__init__()
-        assert d_model % h == 0
-        # We assume d_v always equals d_k
-        self.d_k = d_model // h
-        self.h = h
-        self.linears = clones(nn.Linear(d_model, d_model), 4)
-        self.attn = None
-        self.dropout = nn.Dropout(p=dropout)
-
-        ######################################
-        self.m = 40
-        self.m_k = nn.Parameter(torch.FloatTensor(1, self.m, h * self.d_k))
-        self.m_v = nn.Parameter(torch.FloatTensor(1, self.m, h * self.d_k))
-        nn.init.normal_(self.m_k, 0, 1 / self.d_k)
-        nn.init.normal_(self.m_v, 0, 1 / self.m)
-        ######################################
-
-    def forward(self, query, key, value, mask=None):
-        "Implements Figure 2"
-        if mask is not None:
-            # Same mask applied to all h heads.
-            mask = mask.unsqueeze(1)
-        nbatches = query.size(0)
-        nk = key.shape[1]
-
-        # 1) Do all the linear projections in batch from d_model => h x d_k
-        #query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
-
-        # Memory 的初始化
-        m_k = np.sqrt(self.d_k) * self.m_k.expand(nbatches, self.m, self.h * self.d_k)
-        m_v = np.sqrt(self.m) * self.m_v.expand(nbatches, self.m, self.h * self.d_k)
-
-        query = self.linears[0](query).view(nbatches, -1, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nq, d_k)
-
-        key = torch.cat([self.linears[1](key), m_k], 1).view(nbatches, nk + self.m, self.h, self.d_k).permute(0, 2, 3, 1)  # (b_s, h, d_k, nk)          K = [Wk, m_k]
-        value = torch.cat([self.linears[2](value), m_v], 1).view(nbatches, nk + self.m, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nk, d_v)        V = [Wv, m_v]
-
-        # 2) Apply attention on all the projected vectors in batch.
-        x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
-
-        # 3) "Concat" using a view and apply a final linear.
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
-
-        return self.linears[-1](x)
-
-#加入了AOA的多头注意力
-class MultiHeadedAttention_AoA(nn.Module):
-    def __init__(self, h, d_model, dropout=0.1, scale=1, project_k_v=1, use_output_layer=1, do_aoa=1, norm_q=0,
-                 dropout_aoa=0.3):
-        super(MultiHeadedAttention, self).__init__()
-        assert d_model * scale % h == 0
-        # We assume d_v always equals d_k
-        self.d_k = d_model * scale // h
-        self.h = h
-
-        # Do we need to do linear projections on K and V?
-        self.project_k_v = project_k_v
-
-        # normalize the query?
-        if norm_q:
-            self.norm = LayerNorm(d_model)
-        else:
-            self.norm = lambda x: x
-        self.linears = clones(nn.Linear(d_model, d_model * scale), 1 + 2 * project_k_v)
-
-        # output linear layer after the multi-head attention?
-        self.output_layer = nn.Linear(d_model * scale, d_model)
-
-        # apply aoa after attention?
-        self.use_aoa = do_aoa
-        if self.use_aoa:
-            self.aoa_layer = clones(nn.Sequential(nn.Linear((1 + scale) * d_model, 2 * d_model), nn.GLU(), nn.Dropout(p=dropout_aoa)), 2)
-            # dropout to the input of AoA layer
-            if dropout_aoa > 0:
-                self.dropout_aoa = nn.Dropout(p=dropout_aoa)
-            else:
-                self.dropout_aoa = lambda x: x
-
-        if self.use_aoa or not use_output_layer:
-            # AoA doesn't need the output linear layer
-            del self.output_layer
-            self.output_layer = lambda x: x
-
-        self.attn = None
-        self.dropout = nn.Dropout(p=dropout)
-
-    def forward(self, query, value, key, mask=None):
-        if mask is not None:
-            if len(mask.size()) == 2:
-                mask = mask.unsqueeze(-2)
-            # Same mask applied to all h heads.
-            mask = mask.unsqueeze(1)
-
-        single_query = 0
-        if len(query.size()) == 2:
-            single_query = 1
-            query = query.unsqueeze(1)
-
-        nbatches = query.size(0)
-
-        query = self.norm(query)
-
-        # Do all the linear projections in batch from d_model => h x d_k
-        if self.project_k_v == 0:
-            query_ = self.linears[0](query).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-            key_ = key.view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-            value_ = value.view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-        else:
-            query_, key_, value_ = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for l, x in
-                                    zip(self.linears, (query, key, value))]
-
-        # Apply attention on all the projected vectors in batch.
-        x, self.attn = attention(query_, key_, value_, mask=mask, dropout=self.dropout)
-
-        # "Concat" using a view
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
-
-        if self.use_aoa:
-            # Apply AoA
-            x1 = F.sigmoid(self.aoa_layer[0](self.dropout_aoa(torch.cat([x, query], -1))))
-            x2 = self.aoa_layer[1](self.dropout_aoa(torch.cat([x, query], -1)))
-            x = x1 * x2
-        x = self.output_layer(x)
-
-        if single_query:
-            query = query.squeeze(1)
-            x = x.squeeze(1)
-        return x
-
 class PositionwiseFeedForward(nn.Module):
     "Implements FFN equation."
     def __init__(self, d_model, d_ff, dropout=0.1):
@@ -652,10 +321,9 @@ class TransformerModel(AttModel):
         model = EncoderDecoder(
             #Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N_enc),
             lambda x, y : x,
-            Decoder1(DecoderLayer1(d_model, c(attn), c(ff), dropout), 4),
-            Decoder2(DecoderLayer2(d_model, c(attn), c(attn), c(ff), dropout), 5),
-            #lambda x:x, # nn.Sequential(Embeddings(d_model, src_vocab), c(position)), 之前是这么写的
-            PositionalEncoding(d_model, dropout), #编码器输入的是图像特征，所以不用进行嵌入，只需要加上位置编码
+            Decoder1(DecoderLayer1(d_model, c(attn), c(ff), dropout), 4), # PTE
+            Decoder2(DecoderLayer2(d_model, c(attn), c(attn), c(ff), dropout), 5), # HAT
+            PositionalEncoding(d_model, dropout),
             nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)),
             Generator(d_model, tgt_vocab))
         
@@ -680,7 +348,6 @@ class TransformerModel(AttModel):
 
         delattr(self, 'att_embed')
 
-        # 对图像输入的一个线性层，改变维度
         self.att_embed = clones(nn.Sequential(*(
                                     ((nn.BatchNorm1d(self.att_feat_size),) if self.use_bn else ())+
                                     (nn.Linear(self.att_feat_size, self.d_model),
@@ -721,9 +388,9 @@ class TransformerModel(AttModel):
     def _prepare_feature_forward(self, att_feats, att_masks=None, seq=None):
         att_feats, att_masks = self.clip_att(att_feats, att_masks)
 
-        att_feats1 = pack_wrapper(self.att_embed[0], att_feats[..., 0*1280:1*1280], att_masks) # 加入了 att_embed层
-        att_feats2 = pack_wrapper(self.att_embed[1], att_feats[..., 1*1280:2*1280], att_masks)  # 加入了 att_embed层
-        att_feats3 = pack_wrapper(self.att_embed[2], att_feats[..., 2*1280:3*1280], att_masks)  # 加入了 att_embed层
+        att_feats1 = pack_wrapper(self.att_embed[0], att_feats[..., 0*1280:1*1280], att_masks) 
+        att_feats2 = pack_wrapper(self.att_embed[1], att_feats[..., 1*1280:2*1280], att_masks)  
+        att_feats3 = pack_wrapper(self.att_embed[2], att_feats[..., 2*1280:3*1280], att_masks)  
         att_feats = torch.cat([att_feats1, att_feats2, att_feats3],dim=-1)
 
         if att_masks is None:
@@ -758,14 +425,14 @@ class TransformerModel(AttModel):
         return outputs
         # return torch.cat([_.unsqueeze(1) for _ in outputs], 1)
 
-    def core(self, it, fc_feats_ph, att_feats_ph, memory, state, mask): # it: 上一步的输出
+    def core(self, it, fc_feats_ph, att_feats_ph, memory, state, mask): 
         """
-        state = [ys.unsqueeze(0)] 将每一步的整个网络的输出，加入到解码器的输入
+        state = [ys.unsqueeze(0)] 
         """
-        if len(state) == 0: # 上一步的输入为空, 直接输入上一步的输出
+        if len(state) == 0: 
             ys = it.unsqueeze(1)
         else:
-            ys = torch.cat([state[0][0], it.unsqueeze(1)], dim=1)  # 上一步的输入不为空, 上一步的输出，和上一步的输入拼接
-        out = self.model.decode(memory, mask, ys, subsequent_mask(ys.size(1)) # 编码器的输出, encoder_mask, 拼接的word, decoder_mask, 输入解码器
+            ys = torch.cat([state[0][0], it.unsqueeze(1)], dim=1) 
+        out = self.model.decode(memory, mask, ys, subsequent_mask(ys.size(1)) 
                                         .to(memory.device))
         return out[:, -1], [ys.unsqueeze(0)]

@@ -31,15 +31,15 @@ def add_summary_value(writer, key, value, iteration):
 
 def set_random_seed(seed):
     """Set random seeds."""
-    random.seed(seed)  # 设置 Python 内置随机库的种子
-    np.random.seed(seed)  # 设置 NumPy 随机库的种子
-    torch.manual_seed(seed)  # 设置 PyTorch 随机库的种子
-    torch.cuda.manual_seed(seed)  # 为当前 CUDA 设备设置种子
-    torch.cuda.manual_seed_all(seed)  # 为所有 CUDA 设备设置种子
+    random.seed(seed)  # 
+    np.random.seed(seed)  # 
+    torch.manual_seed(seed)  # 
+    torch.cuda.manual_seed(seed)  # 
+    torch.cuda.manual_seed_all(seed)  # 
 
 def train(opt):
 
-    set_random_seed(42) # 设置随机种子
+    set_random_seed(42) # 
 
     ################################
     # Build dataloader
@@ -61,7 +61,6 @@ def train(opt):
     load_path = os.path.join(opt.start_from, 'infos_'+opt.id+""+'.pkl')
     if opt.start_from is not None and os.path.isfile(load_path):
         with open(load_path, 'rb') as f:
-            print("##########从：{}开始#################".format(load_path))
             infos = utils.pickle_load(f)
             saved_model_opt = infos['opt']
             need_be_same=["caption_model", "rnn_type", "rnn_size", "num_layers"]
@@ -87,20 +86,17 @@ def train(opt):
     opt.vocab = loader.get_vocab()
     model = models.setup(opt).cuda()
 
-    #打断点，看看模型
     # print(model)
-    #import pdb;pdb.set_trace()
 
     del opt.vocab
     # Load pretrained weights:
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'model.pth')):
         path = os.path.join(opt.start_from, 'model.pth')
         model.load_state_dict(torch.load(path))
-        print("##########加载model：{}#################".format(path))
     
     # Wrap generation model with loss function(used for training)
     # This allows loss function computed separately on each machine
-    lw_model = LossWrapper(model, opt) # 模型和对应的损失计算打包
+    lw_model = LossWrapper(model, opt) 
     # Wrap with dataparallel
     dp_model = torch.nn.DataParallel(model)
     dp_model.vocab = getattr(model, 'vocab', None)  # nasty
@@ -111,7 +107,7 @@ def train(opt):
     ##########################
 
     if opt.noamopt:
-        assert opt.caption_model in ['transformer', 'bert', 'm2transformer'], 'noamopt can only work with transformer'  # noamopth一种在NLP领域，特殊的学习率调度策略 ttps://blog.csdn.net/lihuanyu520/article/details/132164972
+        assert opt.caption_model in ['transformer', 'bert', 'm2transformer'], 'noamopt can only work with transformer'  
         optimizer = utils.get_std_opt(model, optim_func=opt.optim, factor=opt.noamopt_factor, warmup=opt.noamopt_warmup)
     elif opt.reduce_on_plateau:
         optimizer = utils.build_optimizer(model.parameters(), opt)
@@ -122,7 +118,6 @@ def train(opt):
         optimizer = utils.build_optimizer(model.parameters(), opt)
     # Load the optimizer
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from,"optimizer.pth")):
-        print("##########加载优化器：{}#################".format(os.path.join(opt.start_from,"optimizer.pth")))
         optimizer.load_state_dict(torch.load(os.path.join(opt.start_from, 'optimizer.pth')))
 
     #########################
@@ -195,15 +190,8 @@ def train(opt):
             if opt.use_warmup and (iteration < opt.noamopt_warmup):
                 opt.current_lr = opt.learning_rate * (iteration+1) / opt.noamopt_warmup
                 utils.set_lr(optimizer, opt.current_lr)
-            # Load data from train split (0) 加载数据
             data = loader.get_batch('train')
-
-            # data["labels"].shape (b, cap_per_img, max_len+2), 开始，末尾，填充都是0
-            # data["masks"].shape (b, cap_per_img, max_len+2), 开头的0 和 末尾的0 ，都算到mask里面
-            # data["gts"] # 2维列表 第一维batch_sizie, 第二维 cap_per_img, 只有末尾加0
-
             print('Read data:', time.time() - start)
-
             torch.cuda.synchronize()
             start = time.time()
 
@@ -212,10 +200,7 @@ def train(opt):
             fc_feats, att_feats, labels, masks, att_masks = tmp
 
             optimizer.zero_grad()
-
-            # 数据放入模型开始训练
             model_out = dp_lw_model(fc_feats, att_feats, labels, masks, att_masks, data['gts'], torch.arange(0, len(data['gts'])), sc_flag, struc_flag, drop_worst_flag)
-
             if not drop_worst_flag:
                 loss = model_out['loss'].mean()
             else:
@@ -274,13 +259,9 @@ def train(opt):
             # make evaluation on validation set, and save model
             if (iteration % opt.save_checkpoint_every == 0 and not opt.save_every_epoch) or (epoch_done and opt.save_every_epoch):
                 # eval model
-                print("#############开始验证##############")
-
                 eval_kwargs = {'split': 'val','dataset': opt.input_json}
                 eval_kwargs.update(vars(opt))
-
                 val_loss, predictions, lang_stats = eval_utils.eval_split(dp_model, lw_model.crit, loader, eval_kwargs) # lw_model.crit 是CE
-
                 if opt.reduce_on_plateau:
                     if 'CIDEr' in lang_stats:
                         optimizer.scheduler_step(-lang_stats['CIDEr'])
@@ -296,7 +277,7 @@ def train(opt):
                 # Save model if is improving on validation result
 
                 if opt.language_eval == 1:
-                    current_score = lang_stats['CIDEr'] # 在验证集上的cider分数
+                    current_score = lang_stats['CIDEr'] 
                 else:
                     current_score = - val_loss
 
@@ -309,20 +290,19 @@ def train(opt):
                 # Dump miscalleous informations
                 infos['best_val_score'] = best_val_score
 
-                utils.save_checkpoint(opt, model, infos, optimizer, histories) # 保存最新
+                utils.save_checkpoint(opt, model, infos, optimizer, histories) 
 
-                if opt.save_history_ckpt and epoch > 10: # 每过多少保存一次
+                if opt.save_history_ckpt: 
                     utils.save_checkpoint(opt, model, infos, optimizer, append=str(epoch) if opt.save_every_epoch else str(iteration))
 
-                if best_flag: # 保存最好的
+                if best_flag: 
                     utils.save_checkpoint(opt, model, infos, optimizer, append='best')
 
-                # 验证损失
                 if val_loss > prev_loss: loss_count += 1
                 else: loss_count = 0
                 if loss_count >= 2:
-                    print("val_loss连续上升{}次".format(loss_count))
-                    #break###################################
+                    print("val_loss continuous raise {} times".format(loss_count))
+
                 prev_loss = val_loss
 
 

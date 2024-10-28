@@ -6,7 +6,7 @@ This is the official code for "HATNet: Hierarchic Attention Transformer With RS-
   
   `pip install -r requirements.txt`
 
- ## metrics compute
+ ## Metrics compute
  This project require the integration of the [Cider](https://github.com/vrama91/cider) and [coco-caption](https://github.com/tylin/coco-caption) libraries.
 
 # Acknowledgements

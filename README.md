@@ -10,4 +10,4 @@ This is the official code for "HATNet: Hierarchic Attention Transformer With RS-
  This project require the integration of the [Cider](https://github.com/vrama91/cider) and [coco-caption](https://github.com/tylin/coco-caption) libraries.
 
 # Acknowledgements
-Our code is based on the codebase repo of [ruotianluo](https://github.com/ruotianluo/ImageCaptioning.pytorch), thansk a lot for his excellent work.
+Our code is based on the codebase repo of [ruotianluo](https://github.com/ruotianluo/ImageCaptioning.pytorch), thanks a lot for his excellent work.

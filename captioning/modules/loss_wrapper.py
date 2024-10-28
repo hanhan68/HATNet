@@ -3,7 +3,7 @@ from . import losses
 from ..utils.rewards import init_scorer, get_self_critical_reward
 import torch.nn.functional as F
 
-class LossWrapper(torch.nn.Module): # 对模型输出和标签计算损失进行打包
+class LossWrapper(torch.nn.Module): 
     def __init__(self, model, opt):
         super(LossWrapper, self).__init__()
         self.opt = opt
@@ -58,25 +58,8 @@ class LossWrapper(torch.nn.Module): # 对模型输出和标签计算损失进行
                 out['kl_loss'] = struc_loss['kl_loss']
                 out['clipfrac'] = struc_loss['clipfrac']
         elif not sc_flag:
-
             loss = self.crit(self.model(fc_feats, att_feats, labels[..., :-1], att_masks), labels[..., 1:],masks[..., 1:], reduction=reduction)
-
-            # logits = self.model(fc_feats, att_feats, labels[..., :-1], att_masks)
-            # # smile
-            # mask = torch.zeros(logits.shape[0], logits.shape[2]).to(logits.device).scatter_(1, labels.reshape(-1, labels.shape[2]), True)
-            # mask[:, 0] = 0
-            # mask = mask.unsqueeze(1).expand(-1, logits.shape[1], -1).clone()
-            # mask[:, 0, :] = 1  # mle on first token
-            # selected_logits = logits.masked_fill(mask == 0, -1e9)
-            # loss = self.crit(
-            #     logits,
-            #     labels[..., 1:],
-            #     masks[..., 1:],
-            #     reduction=reduction
-            # )
-            # smile_loss = F.cross_entropy(selected_logits.view(-1, selected_logits.shape[2]), labels.reshape(-1), ignore_index=0, reduction='mean')
-
-        else: # 使用强化学习损失
+        else: 
             self.model.eval()
             with torch.no_grad():
                 greedy_res, _ = self.model(fc_feats, att_feats, att_masks,
@@ -92,7 +75,7 @@ class LossWrapper(torch.nn.Module): # 对模型输出和标签计算损失进行
             gts = [gts[_] for _ in gt_indices.tolist()]
             reward = get_self_critical_reward(greedy_res, gts, gen_result, self.opt)
             reward = torch.from_numpy(reward).to(sample_logprobs)
-            loss = self.rl_crit(sample_logprobs, gen_result.data, reward, reduction=reduction) # 返回的损失是强化学习损失，不是CE
+            loss = self.rl_crit(sample_logprobs, gen_result.data, reward, reduction=reduction) 
             out['reward'] = reward[:,0].mean()
-        out['loss'] = loss# + smile_loss
+        out['loss'] = loss
         return out

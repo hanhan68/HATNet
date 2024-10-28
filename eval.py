@@ -27,11 +27,11 @@ import torch
 
 def set_random_seed(seed):
     """Set random seeds."""
-    random.seed(seed)  # 设置 Python 内置随机库的种子
-    np.random.seed(seed)  # 设置 NumPy 随机库的种子
-    torch.manual_seed(seed)  # 设置 PyTorch 随机库的种子
-    torch.cuda.manual_seed(seed)  # 为当前 CUDA 设备设置种子
-    torch.cuda.manual_seed_all(seed)  # 为所有 CUDA 设备设置种子
+    random.seed(seed)  # 
+    np.random.seed(seed)  # 
+    torch.manual_seed(seed)  # 
+    torch.cuda.manual_seed(seed)  # 
+    torch.cuda.manual_seed_all(seed)  # 
 
 set_random_seed(42)
 
@@ -115,7 +115,7 @@ crit = losses.LanguageModelCriterion()
 if len(opt.image_folder) == 0:
     loader = DataLoader(opt)
 
-else: #使用其他外来数据
+else:
     loader = DataLoaderRaw({'folder_path': opt.image_folder,
                             'coco_json': opt.coco_json,
                             'batch_size': opt.batch_size,
@@ -138,5 +138,4 @@ if lang_stats:
 
 if opt.dump_json == 1:
     # dump the json
-    print("结果文件放到vis.json了")
     json.dump(split_predictions, open('vis/vis.json', 'w'))

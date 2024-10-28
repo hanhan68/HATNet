@@ -1,14 +1,3 @@
-# This file contains Transformer network
-# Most of the code is copied from http://nlp.seas.harvard.edu/2018/04/03/attention.html
-
-# The cfg name correspondance:
-# N=num_layers
-# d_model=input_encoding_size
-# d_ff=rnn_size
-# h is always 8
-
-####用于GeoRSCLIP最后一层特征，原始的4层Trans
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -31,7 +20,6 @@ from .CaptionModel import CaptionModel
 from .AttModel import sort_pack_padded_sequence, pad_unsort_packed_sequence, pack_wrapper, AttModel
 
 class EncoderDecoder(nn.Module):
-    # 搭建一层Transformer的编码器和解码器
     """
     A standard Encoder-Decoder architecture. Base for this and many 
     other models.
@@ -40,18 +28,18 @@ class EncoderDecoder(nn.Module):
         super(EncoderDecoder, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
-        self.src_embed = src_embed # 编码器的嵌入层
-        self.tgt_embed = tgt_embed # 解码器的嵌入层
-        self.generator = generator # 输出层，一般包括一个线性层和一个softmax
+        self.src_embed = src_embed 
+        self.tgt_embed = tgt_embed 
+        self.generator = generator 
         
-    def forward(self, src, tgt, src_mask, tgt_mask): # 只用输入这四个值
+    def forward(self, src, tgt, src_mask, tgt_mask): 
         "Take in and process masked src and target sequences."
         return self.decode(self.encode(src, src_mask), src_mask,tgt, tgt_mask)
     
     def encode(self, src, src_mask):
         return self.encoder(self.src_embed(src), src_mask)
     
-    def decode(self, memory, src_mask, tgt, tgt_mask): # memory 表示编码器的输出
+    def decode(self, memory, src_mask, tgt, tgt_mask): 
         return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
 class Generator(nn.Module):
@@ -61,7 +49,7 @@ class Generator(nn.Module):
         self.proj = nn.Linear(d_model, vocab)
 
     def forward(self, x):
-        return F.log_softmax(self.proj(x), dim=-1) # 注意这里的log_softmax, 是先进行了softmax, 再取了log的
+        return F.log_softmax(self.proj(x), dim=-1) 
 
 def clones(module, N):
     "Produce N identical layers."
@@ -147,8 +135,8 @@ class DecoderLayer(nn.Module):
     def forward(self, x, memory, src_mask, tgt_mask):
         "Follow Figure 1 (right) for connections."
         m = memory
-        x= self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask)) # 自注意力
-        x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask)) # 交叉注意力
+        x= self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask)) 
+        x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask)) 
         return self.sublayer[2](x, self.feed_forward)
 
 def subsequent_mask(size):
@@ -253,8 +241,7 @@ class TransformerModel(AttModel):
             #Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N_enc),
             lambda x, y: x,
             Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), 5),
-            # lambda x:x, # nn.Sequential(Embeddings(d_model, src_vocab), c(position)), 之前是这么写的
-            PositionalEncoding(d_model, dropout), #编码器输入的是图像特征，所以不用进行嵌入，只需要加上位置编码
+            PositionalEncoding(d_model, dropout),
             nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)),
             Generator(d_model, tgt_vocab))
         
@@ -278,8 +265,6 @@ class TransformerModel(AttModel):
         self.dropout = getattr(opt, 'dropout', 0.1)
 
         delattr(self, 'att_embed')
-
-        # 对输入的一个线性层，改变通道数
 
         self.att_embed = nn.Sequential(*(
                                     ((nn.BatchNorm1d(self.att_feat_size),) if self.use_bn else ())+
@@ -320,9 +305,9 @@ class TransformerModel(AttModel):
 
     def _prepare_feature_forward(self, att_feats, att_masks=None, seq=None):
 
-        att_feats, att_masks = self.clip_att(att_feats, att_masks) # 根据最大长度裁剪, # (b,w ,h ,c)
+        att_feats, att_masks = self.clip_att(att_feats, att_masks) # (b,w ,h ,c)
 
-        att_feats = pack_wrapper(self.att_embed, att_feats, att_masks) # 加入了 att_embed层, 并进行了填充 # (b, d_model, w*h)
+        att_feats = pack_wrapper(self.att_embed, att_feats, att_masks) # (b, d_model, w*h)
 
         if att_masks is None:
             att_masks = att_feats.new_ones(att_feats.shape[:2], dtype=torch.long)
@@ -356,14 +341,14 @@ class TransformerModel(AttModel):
         return outputs
         # return torch.cat([_.unsqueeze(1) for _ in outputs], 1)
 
-    def core(self, it, fc_feats_ph, att_feats_ph, memory, state, mask): # it: 上一步的输出
+    def core(self, it, fc_feats_ph, att_feats_ph, memory, state, mask): 
         """
-        state = [ys.unsqueeze(0)] 将每一步的整个网络的输出，加入到解码器的输入
+        state = [ys.unsqueeze(0)] 
         """
-        if len(state) == 0: # 上一步的输入为空, 直接输入上一步的输出
+        if len(state) == 0: 
             ys = it.unsqueeze(1)
         else:
-            ys = torch.cat([state[0][0], it.unsqueeze(1)], dim=1)  # 上一步的输入不为空, 上一步的输出，和上一步的输入拼接
-        out = self.model.decode(memory, mask, ys, subsequent_mask(ys.size(1)) # 编码器的输出, encoder_mask, 拼接的word, decoder_mask, 输入解码器
+            ys = torch.cat([state[0][0], it.unsqueeze(1)], dim=1) 
+        out = self.model.decode(memory, mask, ys, subsequent_mask(ys.size(1)) 
                                         .to(memory.device))
         return out[:, -1], [ys.unsqueeze(0)]

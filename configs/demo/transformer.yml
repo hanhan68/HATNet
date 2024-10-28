@@ -1,0 +1,39 @@
+caption_model: transformer
+noamopt: true
+noamopt_warmup: 800
+label_smoothing: 0.1
+input_json: /home/rzl/lab/nwpu-ImageCaption/data/nwpu_talk.json
+input_label_h5: /home/rzl/lab/nwpu-ImageCaption/data/nwpu_label.h5
+input_att_dir: /home/rzl/lab/nwpu-ImageCaption/data/nwpu_GeoRSCLIP_att
+
+seq_per_img: 5
+batch_size: 50
+learning_rate: 0.00001
+
+# Transformer config
+N_enc: 4
+N_dec: 4
+d_model: 512
+d_ff: 2048
+num_att_heads: 8
+dropout: 0.1
+
+att_feat_size: 1280 # GeoRSCLIP
+
+learning_rate_decay_start: 0
+scheduled_sampling_start: -1 
+save_checkpoint_every: 200
+save_history_ckpt: 1
+
+save_every_epoch: True
+
+language_eval: 1
+val_images_use: -1
+max_epochs: 50
+
+train_sample_n: 5
+
+beam_size: 3
+
+REFORWARD: false
+

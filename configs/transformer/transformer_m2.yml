@@ -1,0 +1,52 @@
+caption_model: m2transformer
+noamopt: true
+noamopt_warmup: 500
+label_smoothing: 0.1
+input_json: data/rsicd_talk.json
+input_label_h5: data/rsicd_label.h5
+input_att_dir: data/nwputalk_att
+
+# cached_tokens: coco-train-idxs
+
+seq_per_img: 5
+batch_size: 64
+learning_rate: 0.0001
+
+# Notice: because I'm to lazy, I reuse the option name for RNNs to set the hyperparameters for transformer:
+# N=num_layers
+# d_model=input_encoding_size
+# d_ff=rnn_size
+
+# will be ignored
+num_layers: 6
+input_encoding_size: 512
+rnn_size: 2048
+
+# Transformer config
+N_enc: 3
+N_dec: 3
+d_model: 512
+d_ff: 2048
+num_att_heads: 8
+dropout: 0.1
+
+
+learning_rate_decay_start: 0
+scheduled_sampling_start: -1 
+save_checkpoint_every: 100
+save_history_ckpt: 1
+
+save_every_epoch: True
+
+language_eval: 1
+val_images_use: -1
+max_epochs: 50
+train_sample_n: 5
+
+sample_n: 1
+beam_size: 3 #用resnet101特征，使用beam_search 有一些问题
+
+REFORWARD: false
+
+
+

@@ -17,8 +17,8 @@ from .BertCapModel import BertCapModel
 from .M2Transformer import M2TransformerModel
 from .AoAModel import AoAModel
 
-#from .TransformerModel import TransformerModel
-from .TransformerModel_3 import TransformerModel
+
+from .GeoRSCLIP_mul_HAT_PTE import TransformerModel
 
 def setup(opt):
     if opt.caption_model in ['fc', 'show_tell']:

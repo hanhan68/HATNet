@@ -26,13 +26,6 @@ from pycocoevalcap.eval import COCOEvalCap
 from PIL import Image
 # load coco-caption if available
 
-# try:
-#     sys.path.append("coco-caption")
-#     from pycocotools.coco import COCO
-#     from pycocoevalcap.eval import COCOEvalCap
-# except Exception as e:
-#     print('Warning: coco-caption not available. Error meesage:', e)
-
 bad_endings = ['a','an','the','in','for','at','of','with','before','after','on','upon','near','to','is','are','am']
 bad_endings += ['the']
 
@@ -51,7 +44,6 @@ def getCOCO(dataset):
     # elif 'flickr30k' in dataset or 'f30k' in dataset:
     #     annFile = 'data/f30k_captions4eval.json'
     annFile = "/home/rzl/lab/nwpu-caption/data/nwpu_val.json"
-    #annFile = "/home/rzl/lab/nwpu-ImageCaption/data/sydney_val.json"
     #annFile = "/home/rzl/lab/nwpu-ImageCaption/data/ucm_val.json"
     #annFile = "/home/rzl/lab/nwpu-ImageCaption/data/rsicd_val.json"
     return COCO(annFile)
@@ -205,11 +197,10 @@ def eval_split(model, crit, loader, eval_kwargs={}):
                 entry['file_name'] = data['infos'][k]['file_path']
             predictions.append(entry)
             if eval_kwargs.get('dump_images', 0) == 1:
-                # dump the raw image to vis/ folder  复制图片到vis的文件里面
+                # dump the raw image to vis/ folder 
                 src_img = os.path.join(eval_kwargs['image_root'], data['infos'][k]['file_path'])
                 dst_img = '/home/rzl/lab/nwpu-ImageCaption/vis/imgs/img' + str(len(predictions)) + '.jpg'
                 with Image.open(src_img) as img:
-                    # 将图像保存为 JPG 格式
                     img.save(dst_img, 'JPEG')
                     print("{}======>{}".format(src_img, dst_img))
                 #cmd = 'cp "' + os.path.join(eval_kwargs['image_root'], data['infos'][k]['file_path']) + '" vis/imgs/img' + str(len(predictions)) + data['infos'][k]["file_path"][-4:] # bit gross

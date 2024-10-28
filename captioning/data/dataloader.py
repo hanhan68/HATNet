@@ -142,9 +142,9 @@ class Dataset(data.Dataset):
 
         # separate out indexes for each of the provided splits
         self.split_ix = {'train': [], 'val': [], 'test': []}
-        for ix in range(len(self.info['images'])): # 从头到尾遍历一遍图像
+        for ix in range(len(self.info['images'])): 
             img = self.info['images'][ix]
-            if not 'split' in img: # 不包含 split字段
+            if not 'split' in img: 
                 self.split_ix['train'].append(ix)
                 self.split_ix['val'].append(ix)
                 self.split_ix['test'].append(ix)
@@ -161,7 +161,7 @@ class Dataset(data.Dataset):
         print('assigned %d images to split val' %len(self.split_ix['val']))
         print('assigned %d images to split test' %len(self.split_ix['test']))
 
-    def get_captions(self, ix, seq_per_img): # 返回一个图像的所有captions
+    def get_captions(self, ix, seq_per_img): 
         # fetch the sequence labels
         ix1 = self.label_start_ix[ix] - 1 #label_start_ix starts from 1
         ix2 = self.label_end_ix[ix] - 1
@@ -180,7 +180,7 @@ class Dataset(data.Dataset):
 
         return seq
 
-    def collate_func(self, batch, split): # 将一个batch数据的图像特征、注意力特征、标签、地面真实标签、信息等数据组合成一个字典 data 并返回
+    def collate_func(self, batch, split): 
         seq_per_img = self.seq_per_img
         fc_batch = []
         att_batch = []
@@ -220,11 +220,11 @@ class Dataset(data.Dataset):
 
         # #sort by att_feat length
         # fc_batch, att_batch, label_batch, gts, infos = zip(*sorted(zip(fc_batch, att_batch, np.vsplit(label_batch, batch_size), gts, infos), key=lambda x: len(x[1]), reverse=True))
-        fc_batch, att_batch, label_batch, gts, infos = zip(*sorted(zip(fc_batch, att_batch, label_batch, gts, infos), key=lambda x: 0, reverse=True)) # 这里 key = 0 ,实际没有做排序
+        fc_batch, att_batch, label_batch, gts, infos = zip(*sorted(zip(fc_batch, att_batch, label_batch, gts, infos), key=lambda x: 0, reverse=True)) 
         data = {}
         data['fc_feats'] = np.stack(fc_batch)
 
-        data['att_feats'] = np.stack(att_batch)########新加的
+        data['att_feats'] = np.stack(att_batch)
 
         # merge att_feats
         # max_att_len = max([_.shape[0] for _ in att_batch])
@@ -262,7 +262,7 @@ class Dataset(data.Dataset):
 
         return data
 
-    def __getitem__(self, index): # 按照图片index 获取特征，caption, 编号，现在位置， 是否循环采样
+    def __getitem__(self, index): 
         """This function returns a tuple that is further passed to collate_fn
         """
         ix, it_pos_now, wrapped = index #self.split_ix[index]
@@ -271,9 +271,9 @@ class Dataset(data.Dataset):
         if self.use_att:
             att_feat = self.att_loader.get(str(self.info['images'][ix]['id']))
             # Reshape to K x C
-            #att_feat = att_feat.reshape(-1, att_feat.shape[-1]) ############## 在这里flatten了
+            #att_feat = att_feat.reshape(-1, att_feat.shape[-1]) 
             if self.norm_att_feat:
-                att_feat = att_feat / np.linalg.norm(att_feat, 2, 1, keepdims=True) # 2表示L2范数， 在1 维度上进行
+                att_feat = att_feat / np.linalg.norm(att_feat, 2, 1, keepdims=True) 
 
             if self.use_box:
                 box_feat = self.box_loader.get(str(self.info['images'][ix]['id']))
@@ -316,26 +316,26 @@ class DataLoader:
         self.loaders, self.iters = {}, {}
         for split in ['train', 'val', 'test']:
             if split == 'train':
-                sampler = MySampler(self.dataset.split_ix[split], shuffle=True, wrap=True) # 训练时打乱，循环遍历
+                sampler = MySampler(self.dataset.split_ix[split], shuffle=True, wrap=True) 
             else:
-                sampler = MySampler(self.dataset.split_ix[split], shuffle=False, wrap=False) # 验证或在测试，不打乱，不循环遍历，只遍历一次
+                sampler = MySampler(self.dataset.split_ix[split], shuffle=False, wrap=False) 
 
             self.loaders[split] = data.DataLoader(dataset=self.dataset,
                                                   batch_size=self.batch_size,
                                                   sampler=sampler,
                                                   pin_memory=True,
                                                   num_workers=4, # 4 is usually enough
-                                                  collate_fn=partial(self.dataset.collate_func, split=split), # partial():固定函数的部分参数，从而创建一个新的函数
+                                                  collate_fn=partial(self.dataset.collate_func, split=split), 
                                                   drop_last=False,
                                                   persistent_workers=True)
 
-            self.iters[split] = iter(self.loaders[split]) # 要获取这个数据，迭代这个就好了
+            self.iters[split] = iter(self.loaders[split]) 
 
     def get_batch(self, split):
         try:
             data = next(self.iters[split])
-        except StopIteration: # 当前迭代器已经耗尽（遍历完了所有数据）
-            self.iters[split] = iter(self.loaders[split]) # 重新创建数据加载器的迭代器
+        except StopIteration: 
+            self.iters[split] = iter(self.loaders[split]) 
             data = next(self.iters[split])
         return data
 
@@ -375,25 +375,11 @@ class DataLoader:
         for split in self.loaders.keys():
             self.loaders[split].sampler.load_state_dict(state_dict[split])
 
-# dataloader 返回的数据
-# {
-#     "fc_feats":[],
-#     "att_feats":[], #(batch_size, 14x14, 2048)
-#     "att_masks":[],
-
-#     "labels": [], #(barch_size, caps_per_img, max_len+2)
-#     "masks":[], #size 同上
-#     "gts":[], #(barch_size, caps_per_img, max_len)
-
-#     "bounds":{}, # {'it_pos_now': 48, 'it_max': 8734, 'wrapped': False}, 范围
-#     "infos":[{},{}] # {'ix': 10463, 'id': 10463, 'file_path': '00464.jpg'}
-# }
-
-class MySampler(data.sampler.Sampler): # 是否打乱数据顺序、是否循环遍历数据
+class MySampler(data.sampler.Sampler): 
     def __init__(self, index_list, shuffle, wrap):
         self.index_list = index_list
-        self.shuffle = shuffle # 是否打乱顺序
-        self.wrap = wrap # 是否循环遍历
+        self.shuffle = shuffle
+        self.wrap = wrap 
         # if wrap, there will be not stop iteration called
         # wrap True used during training, and wrap False used during test.
         self._reset_iter()
